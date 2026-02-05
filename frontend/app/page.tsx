@@ -155,10 +155,22 @@ export default function Home() {
 
     return (
         <div className={styles.container}>
-            <aside className={styles.sidebar}>
-                <div className={styles.brand}>
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-                    <span>AG Automation</span>
+            <aside className={`${styles.sidebar} ${!sidebarExpanded ? styles.collapsed : ''}`}>
+                <button 
+                    className={styles.collapseToggle} 
+                    onClick={() => setSidebarExpanded(!sidebarExpanded)}
+                    title={sidebarExpanded ? "Collapse Sidebar" : "Expand Sidebar"}
+                >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ transform: sidebarExpanded ? 'rotate(0deg)' : 'rotate(180deg)', transition: 'transform 0.3s ease' }}>
+                        <polyline points="15 18 9 12 15 6"/>
+                    </svg>
+                </button>
+
+                <div className={styles.logo}>
+                    <div className={styles.logoIcon}>
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                    </div>
+                    <h1 className="text-xl font-bold tracking-tight">AG Automation</h1>
                 </div>
                 <nav>
                     <div className={`${styles.navItem} ${tab === 'setup' ? styles.active : ''}`} onClick={() => setTab('setup')}>
@@ -187,95 +199,98 @@ export default function Home() {
             </aside>
             <main className={styles.main}>
                 {tab === 'setup' && (
-                    <div className="animate-in fade-in slide-in-from-right-4 duration-500">
-                        <div className={styles.header}>
-                            <h2 className="text-2xl font-bold">System Configuration</h2>
-                        </div>
-                        
-                        <div className={styles.setupGrid}>
-                            <div className={styles.card}>
-                                <div className={styles.cardHeader}>
-                                    <div className={styles.iconBox}>
-                                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-navy"><path d="M21 12V7a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 7v10a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l2-1.14"/><polyline points="3.29 7 12 12 20.71 7"/><line x1="12" y1="22" x2="12" y2="12"/></svg>
-                                    </div>
-                                    <h3 className="text-lg font-bold text-navy">API Source</h3>
+                    <div className={styles.setupContainer}>
+                        <div className={styles.setupIntro}>
+                            <div>
+                                <h2 className="text-5xl font-black tracking-tight leading-none mb-6">Initialize<br/>Workspace.</h2>
+                                <p className="text-powder-blue/60 text-lg leading-relaxed max-w-sm">Connect your API blueprint and define target parameters to begin automated analysis.</p>
+                            </div>
+
+                            <div>
+                                <div className={styles.statusRow}>
+                                    <span className={styles.statusPill}>API ENGINE</span>
+                                    <span className={styles.statusPill}>ENV MAPPING</span>
+                                    <span className={styles.statusPill}>AI GEN</span>
                                 </div>
-                                
-                                <div className={styles.formGroup}>
-                                    <label className={styles.label}>Swagger URL</label>
-                                    <input
-                                        className={styles.input}
-                                        value={config.openapiUrl}
-                                        onChange={e => setConfig({ ...config, openapiUrl: e.target.value })}
-                                        placeholder="https://api.example.com/swagger.json"
-                                    />
-                                    <p className={styles.helperText}>
-                                        Provide the public URL to your Swagger or OpenAPI JSON/YAML definition.
-                                    </p>
+                                <p className={styles.persistenceText}>
+                                    AVIATION GRADE PERSISTENCE ACTIVE
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className={styles.setupWorkspace}>
+                            <div className={styles.setupGrid}>
+                                <div className={styles.stepSection}>
+                                    <div className={styles.stepHeader}>
+                                        <div className={styles.stepNumber}>Phase 01</div>
+                                        <h3 className={styles.stepTitle}>Blueprint Mapping</h3>
+                                    </div>
+                                    <div className={styles.card}>
+                                        <div className={styles.formGroup} style={{ marginBottom: 0 }}>
+                                            <label className={styles.label}>Swagger Source URL</label>
+                                            <input
+                                                className={styles.input}
+                                                value={config.openapiUrl}
+                                                onChange={e => setConfig({ ...config, openapiUrl: e.target.value })}
+                                                placeholder="https://api.example.com/swagger.json"
+                                            />
+                                        </div>
+                                    </div>
                                 </div>
 
-                                <button className={`${styles.button} w-full mt-auto`} onClick={parseSwagger} disabled={loading}>
+                                <div className={styles.stepSection}>
+                                    <div className={styles.stepHeader}>
+                                        <div className={styles.stepNumber}>Phase 02</div>
+                                        <h3 className={styles.stepTitle}>Execution Target</h3>
+                                    </div>
+                                    <div className={styles.card}>
+                                        <div className={styles.formGroup} style={{ marginBottom: 0 }}>
+                                            <label className={styles.label}>Environment Base URL</label>
+                                            <input
+                                                className={styles.input}
+                                                value={config.baseUrl}
+                                                onChange={e => setConfig({ ...config, baseUrl: e.target.value })}
+                                                placeholder="https://api.production.com"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className={styles.stepSection}>
+                                    <div className={styles.stepHeader}>
+                                        <div className={styles.stepNumber}>Phase 03</div>
+                                        <h3 className={styles.stepTitle}>Intelligence Key</h3>
+                                    </div>
+                                    <div className={styles.card}>
+                                        <div className={styles.formGroup} style={{ marginBottom: 0 }}>
+                                            <label className={styles.label}>Groq Authorization</label>
+                                            <input
+                                                className={styles.input}
+                                                value={config.apiKey}
+                                                onChange={e => setConfig({ ...config, apiKey: e.target.value })}
+                                                placeholder="gsk_..."
+                                                type="password"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {config.openapiUrl && config.baseUrl && (
+                                <button className={`${styles.button} w-full py-5 text-lg rounded-xl mt-auto shadow-2xl`} onClick={parseSwagger} disabled={loading}>
                                     {loading ? (
-                                        <>
-                                            <svg className="animate-spin" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-                                            Mapping API context...
-                                        </>
+                                        <div className="flex items-center justify-center gap-4">
+                                            <svg className="animate-spin" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                                            Initializing project context...
+                                        </div>
                                     ) : (
-                                        <>
-                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                                            Fetch Definitions
-                                        </>
+                                        <div className="flex items-center justify-center gap-4">
+                                            <span>Finalize & Launch Workspace</span>
+                                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m12 14 4-4-4-4"/><path d="M4 14V4h16v10Z"/><path d="M2 20h20"/></svg>
+                                        </div>
                                     )}
                                 </button>
-                            </div>
-
-                            <div className={styles.card}>
-                                <div className={styles.cardHeader}>
-                                    <div className={styles.iconBox}>
-                                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-navy"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-                                    </div>
-                                    <h3 className="text-lg font-bold text-navy">Environment Settings</h3>
-                                </div>
-
-                                <div className={styles.formGroup}>
-                                    <label className={styles.label}>Target Base URL</label>
-                                    <input
-                                        className={styles.input}
-                                        value={config.baseUrl}
-                                        onChange={e => setConfig({ ...config, baseUrl: e.target.value })}
-                                        placeholder="https://api.production.com"
-                                    />
-                                    <p className={styles.helperText}>
-                                        The root endpoint where requests will be executed.
-                                    </p>
-                                </div>
-
-                                <div className={styles.formGroup} style={{ marginBottom: 0 }}>
-                                    <label className={styles.label}>AI Assistant Key (Groq)</label>
-                                    <input
-                                        className={styles.input}
-                                        value={config.apiKey}
-                                        onChange={e => setConfig({ ...config, apiKey: e.target.value })}
-                                        placeholder="gsk_..."
-                                        type="password"
-                                    />
-                                    <p className={styles.helperText}>
-                                        Required for generating high-quality synthetic test data.
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className={styles.persistenceBar}>
-                            <div className={styles.avatarStack}>
-                                <div className={styles.initials}>
-                                    <div className={styles.initial} style={{ background: 'var(--navy)', color: '#fff' }}>JSON</div>
-                                    <div className={styles.initial} style={{ background: 'var(--powder-blue)', color: 'var(--navy)' }}>AI</div>
-                                    <div className={styles.initial} style={{ background: '#94a3b8', color: '#fff' }}>DOC</div>
-                                </div>
-                                <span className={styles.persistenceText}>All session data is encrypted and stored locally in your browser.</span>
-                            </div>
-                            <span className={styles.badge}>Local Persistence Active</span>
+                            )}
                         </div>
                     </div>
                 )}
