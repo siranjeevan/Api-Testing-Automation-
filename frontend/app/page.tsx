@@ -4,7 +4,7 @@ import styles from './page.module.css';
 import { ApiEndpoint, TestExecutionResult } from './types';
 
 export default function Home() {
-
+    const [sidebarExpanded, setSidebarExpanded] = React.useState(true);
     const [config, setConfig] = React.useState(() => {
         if (typeof window !== 'undefined') {
             const saved = localStorage.getItem('ag_config');
