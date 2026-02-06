@@ -7,6 +7,8 @@ export default function Home() {
     const [sidebarExpanded, setSidebarExpanded] = React.useState(true);
     const [selectedTag, setSelectedTag] = React.useState<string | null>(null);
     const [autoParams, setAutoParams] = React.useState<Record<string, string>>({});
+    const [errorDrawerOpen, setErrorDrawerOpen] = React.useState(false);
+    const [warningDrawerOpen, setWarningDrawerOpen] = React.useState(false);
     const [config, setConfig] = React.useState(() => {
         if (typeof window !== 'undefined') {
             const saved = localStorage.getItem('ag_config');
@@ -164,9 +166,11 @@ export default function Home() {
                 return;
             }
             Object.entries(obj).forEach(([key, val]) => {
-                // Capture ALL scalar values (strings, numbers, booleans)
-                // This allows resolving {phone_number}, {email}, {status}, etc.
-                if (typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean') {
+                // PRIORITIZE FIRST FOUND: Do not overwrite if key already exists.
+                // This ensures we save the ID of the first item in a list, which is usually the intended consistency target.
+                if (found[key]) return;
+
+                if (val !== null && (typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean')) {
                     found[key] = String(val);
                 } else {
                     scan(val);
@@ -176,6 +180,24 @@ export default function Home() {
         scan(data);
         return found;
     };
+
+    const categories = Array.from(new Set(endpoints.flatMap(ep => ep.tags || ['General']))).sort();
+    const isRealError = (r: TestExecutionResult) => {
+        if (r.passed) return false;
+        
+        // 1. Ignore 404s explicitly
+        if (r.status === 404) return false;
+
+        // 2. Ignore "Not Found" text patterns in the entire response body
+        const responseStr = JSON.stringify(r.response || "").toLowerCase();
+        const errorStr = (r.error || "").toLowerCase();
+        
+        if (responseStr.includes("not found") || errorStr.includes("not found")) return false;
+        
+        return true;
+    };
+    const failedCount = results.filter(isRealError).length;
+    const warningCount = results.filter(r => !r.passed && !isRealError(r)).length;
 
     return (
         <div className={styles.container}>
@@ -377,16 +399,96 @@ export default function Home() {
                                                 className={styles.runAllButton}
                                                 onClick={async () => {
                                                     setLoading(true);
+                                                    // Clear results for the filtered suite
                                                     setResults(prev => prev.filter(r => !filtered.some(f => f.path === r.endpoint && f.method === r.method)));
-                                                    try {
-                                                        const res = await fetch('http://localhost:8000/run', {
-                                                            method: 'POST', headers: { 'Content-Type': 'application/json' },
-                                                            body: JSON.stringify({ baseUrl: config.baseUrl, endpoints: filtered, testData: JSON.parse(testData), variables: {} })
-                                                        });
-                                                        const data = await res.json();
-                                                        setResults(prev => [...prev, ...data.results]);
-                                                    } catch (e) { console.error(e); }
-                                                    finally { setLoading(false); }
+                                                    
+                                                    // 1. Sort: Producers (no vars) first, Consumers (vars) last
+                                                    const sortedEndpoints = [...filtered].sort((a, b) => {
+                                                        const aHasVars = a.path.includes('{');
+                                                        const bHasVars = b.path.includes('{');
+                                                        if (aHasVars === bHasVars) return 0;
+                                                        return aHasVars ? 1 : -1;
+                                                    });
+
+                                                    // 2. Local Context Accumulator
+                                                    let currentContext = { ...autoParams };
+
+                                                    // 3. Sequential Execution Strategy
+                                                    for (const ep of sortedEndpoints) {
+                                                        try {
+                                                            // a. Smart Resolve
+                                                            let resolvedPath = ep.path;
+                                                            const placeholders = ep.path.match(/\{([^}]+)\}/g) || [];
+                                                            
+                                                            placeholders.forEach(p => {
+                                                                const key = p.slice(1, -1);
+                                                                // Resolution Priority: Exact Match -> 'id' Fallback (only for ID fields)
+                                                                const fallback = key.toLowerCase().includes('id') ? (currentContext['id'] || currentContext['uuid']) : null;
+                                                                const val = currentContext[key] || fallback;
+                                                                if (val) {
+                                                                    resolvedPath = resolvedPath.replace(p, val);
+                                                                }
+                                                            });
+
+                                                            // b. Execute Single
+                                                            const resolvedEp = { ...ep, path: resolvedPath };
+                                                            const res = await fetch('http://localhost:8000/run', {
+                                                                method: 'POST', 
+                                                                headers: { 'Content-Type': 'application/json' },
+                                                                body: JSON.stringify({ 
+                                                                    baseUrl: config.baseUrl, 
+                                                                    endpoints: [resolvedEp], // Array of 1
+                                                                    testData: JSON.parse(testData), 
+                                                                    variables: {} 
+                                                                })
+                                                            });
+                                                            
+                                                            const data = await res.json();
+                                                            
+                                                            // c. Learning Phase (Extract IDs)
+                                                            if (data.results && data.results.length > 0) {
+                                                                const resultItem = data.results[0];
+                                                                
+                                                                // Map back to original parameterized path for UI
+                                                                if (resolvedPath !== ep.path) {
+                                                                    resultItem.endpoint = ep.path; 
+                                                                }
+
+                                                                setResults(prev => [...prev, resultItem]);
+
+                                                                if (resultItem.response) {
+                                                                    const learned = extractIdentifiers(resultItem.response);
+
+                                                                    // Contextual Aliasing: Map 'id' to specific aliases (e.g. driver_id)
+                                                                    const pathSegments = ep.path.split('/').filter(Boolean);
+                                                                    const lastSegment = pathSegments[pathSegments.length - 1];
+                                                                    if (lastSegment && !lastSegment.includes('{')) {
+                                                                        const singular = lastSegment.endsWith('s') ? lastSegment.slice(0, -1) : lastSegment;
+                                                                        
+                                                                        ['id', 'uuid', '_id', 'userId'].forEach(idKey => {
+                                                                            if (learned[idKey]) {
+                                                                                learned[`${singular}_id`] = learned[idKey];
+                                                                                learned[`${singular}Id`] = learned[idKey];
+                                                                                learned[`${singular}Of`] = learned[idKey];
+                                                                            }
+                                                                        });
+                                                                    }
+
+                                                                    currentContext = { ...currentContext, ...learned };
+                                                                }
+                                                            }
+
+                                                            // Small delay for UI smoothness
+                                                            await new Promise(r => setTimeout(r, 20));
+
+                                                        } catch (e) {
+                                                            console.error("Execution error:", e);
+                                                        }
+                                                    }
+
+                                                    // 4. Sync Global Knowledge
+                                                    setAutoParams(currentContext);
+                                                    setLoading(false);
                                                 }}
                                                 disabled={loading}
                                             >
@@ -470,8 +572,9 @@ export default function Home() {
                                                                         
                                                                         placeholders.forEach(p => {
                                                                             const key = p.slice(1, -1);
-                                                                            // Resolution Priority: Exact Match -> 'id' Fallback
-                                                                            const val = currentContext[key] || currentContext['id'];
+                                                                            // Resolution Priority: Exact Match -> 'id' Fallback (only for ID fields)
+                                                                            const fallback = key.toLowerCase().includes('id') ? (currentContext['id'] || currentContext['uuid']) : null;
+                                                                            const val = currentContext[key] || fallback;
                                                                             if (val) {
                                                                                 resolvedPath = resolvedPath.replace(p, val);
                                                                             }
@@ -505,6 +608,24 @@ export default function Home() {
 
                                                                             if (resultItem.response) {
                                                                                 const learned = extractIdentifiers(resultItem.response);
+                                                                                
+                                                                                // Contextual Aliasing: Map 'id' to specific aliases (e.g. driver_id, driverId)
+                                                                                const pathSegments = ep.path.split('/').filter(Boolean);
+                                                                                const lastSegment = pathSegments[pathSegments.length - 1];
+                                                                                if (lastSegment && !lastSegment.includes('{')) {
+                                                                                    // Drivers -> driver
+                                                                                    const singular = lastSegment.endsWith('s') ? lastSegment.slice(0, -1) : lastSegment;
+                                                                                    
+                                                                                    // Map common ID keys to specific aliases
+                                                                                    ['id', 'uuid', '_id', 'userId'].forEach(idKey => {
+                                                                                        if (learned[idKey]) {
+                                                                                            learned[`${singular}_id`] = learned[idKey]; // vehicle_id
+                                                                                            learned[`${singular}Id`] = learned[idKey];  // vehicleId
+                                                                                            learned[`${singular}Of`] = learned[idKey];  // vehicleOf
+                                                                                        }
+                                                                                    });
+                                                                                }
+                                                                                
                                                                                 currentContext = { ...currentContext, ...learned };
                                                                             }
                                                                         }
@@ -538,7 +659,9 @@ export default function Home() {
                                                                 let resolved = path;
                                                                 placeholders.forEach(p => {
                                                                     const key = p.slice(1, -1);
-                                                                    const val = autoParams[key] || autoParams['id'];
+                                                                    // Strict mapping first. Only fallback to generic 'id' if the placeholder looks like an ID.
+                                                                    const fallback = key.toLowerCase().includes('id') ? (autoParams['id'] || autoParams['uuid']) : null;
+                                                                    const val = autoParams[key] || fallback;
                                                                     if (val) {
                                                                         resolved = resolved.replace(p, val);
                                                                     }
@@ -548,6 +671,22 @@ export default function Home() {
 
                                                             const updateAutoParams = (responseData: any) => {
                                                                 const learned = extractIdentifiers(responseData);
+                                                                
+                                                                // Contextual Aliasing: Map 'id' to specific aliases (e.g. driver_id, driverId)
+                                                                const pathSegments = ep.path.split('/').filter(Boolean);
+                                                                const lastSegment = pathSegments[pathSegments.length - 1];
+                                                                if (lastSegment && !lastSegment.includes('{')) {
+                                                                    const singular = lastSegment.endsWith('s') ? lastSegment.slice(0, -1) : lastSegment;
+                                                                    
+                                                                    ['id', 'uuid', '_id', 'userId'].forEach(idKey => {
+                                                                        if (learned[idKey]) {
+                                                                            learned[`${singular}_id`] = learned[idKey];
+                                                                            learned[`${singular}Id`] = learned[idKey];
+                                                                            learned[`${singular}Of`] = learned[idKey];
+                                                                        }
+                                                                    });
+                                                                }
+
                                                                 setAutoParams(prev => ({ ...prev, ...learned }));
                                                             };
 
@@ -619,6 +758,136 @@ export default function Home() {
                     </div>
                 )}
             </main>
+            {/* Data Warning Toggle & Drawer */}
+            <div className={`${styles.drawerBackdrop} ${warningDrawerOpen || errorDrawerOpen ? styles.active : ''}`} onClick={() => {
+                setWarningDrawerOpen(false);
+                setErrorDrawerOpen(false);
+            }} />
+            
+            {warningCount > 0 && (
+                <>
+                    <button 
+                        className={styles.warningToggle} 
+                        onClick={() => setWarningDrawerOpen(true)}
+                        style={{ bottom: failedCount > 0 ? '90px' : '32px' }}
+                    >
+                        <span>{warningCount} No Data</span>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                    </button>
+
+                    <div className={`${styles.errorDrawer} ${warningDrawerOpen ? styles.open : ''}`}>
+                        <div className={styles.drawerHeader} style={{borderBottom: '1px solid rgba(245, 158, 11, 0.1)'}}>
+                            <div className={styles.drawerTitle} style={{color: '#d97706'}}>Missing Data ({warningCount})</div>
+                            <button className={styles.closeButton} onClick={() => setWarningDrawerOpen(false)}>
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                            </button>
+                        </div>
+                        <div className={styles.drawerContent}>
+                            <div className={styles.errorGrid}>
+                            {(() => {
+                                const allWarnings = results.filter(r => !r.passed && !isRealError(r));
+                                if (allWarnings.length === 0) return null;
+                                
+                                return allWarnings.map((fail, idx) => {
+                                    const epDef = endpoints.find(e => e.path === fail.endpoint && e.method === fail.method);
+                                    // Use the first tag as the category label, default to 'General'
+                                    const category = epDef?.tags?.[0] || 'General'; 
+                                    
+                                    return (
+                                        <div key={idx} className={styles.warningItem}>
+                                            <div className={styles.cardHeader} style={{marginBottom: '8px'}}>
+                                                <div style={{fontSize: '0.65rem', fontWeight: 800, color: '#d97706', textTransform: 'uppercase', letterSpacing:'0.05em'}}>
+                                                    {category}
+                                                </div>
+                                            </div>
+                                            <div className={styles.cardHeader}>
+                                                <div className={styles.cardPath}>{fail.endpoint}</div>
+                                                <div className={styles.cardMethod}>{fail.method}</div>
+                                            </div>
+                                            
+                                            <div className={styles.cardSummary}>
+                                                {epDef?.summary || 'Endpoint Execution'}
+                                            </div>
+
+                                            <div className={styles.cardMeta}>
+                                                <div className={styles.cardTime}>{Math.round(fail.time)} MS</div>
+                                                <div className={`${styles.cardStatus} ${styles.warning}`}>NO DATA</div>
+                                            </div>
+
+                                            <div className={styles.cardCodeBlock}>
+                                                <pre>{JSON.stringify(fail.response?.detail || fail.response || "No Data Found", null, 2)}</pre>
+                                            </div>
+                                        </div>
+                                    );
+                                });
+                            })()}
+                            </div>
+                        </div>
+                    </div>
+                </>
+            )}
+
+            {/* Error Toggle & Drawer */}
+            {failedCount > 0 && (
+                <>
+                    <button 
+                        className={styles.errorToggle} 
+                        onClick={() => setErrorDrawerOpen(true)}
+                    >
+                        <span>{failedCount} Errors</span>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                    </button>
+
+                    <div className={`${styles.errorDrawer} ${errorDrawerOpen ? styles.open : ''}`}>
+                        <div className={styles.drawerHeader}>
+                            <div className={styles.drawerTitle}>Failed Requests ({failedCount})</div>
+                            <button className={styles.closeButton} onClick={() => setErrorDrawerOpen(false)}>
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                            </button>
+                        </div>
+                        <div className={styles.drawerContent}>
+                            <div className={styles.errorGrid}>
+                            {(() => {
+                                const allFailures = results.filter(r => isRealError(r));
+                                if (allFailures.length === 0) return null;
+
+                                return allFailures.map((fail, idx) => {
+                                    const epDef = endpoints.find(e => e.path === fail.endpoint && e.method === fail.method);
+                                    const category = epDef?.tags?.[0] || 'General';
+
+                                    return (
+                                        <div key={idx} className={styles.errorItem}>
+                                            <div className={styles.cardHeader} style={{marginBottom: '8px'}}>
+                                                <div style={{fontSize: '0.65rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing:'0.05em'}}>
+                                                    {category}
+                                                </div>
+                                            </div>
+                                            <div className={styles.cardHeader}>
+                                                <div className={styles.cardPath}>{fail.endpoint}</div>
+                                                <div className={styles.cardMethod}>{fail.method}</div>
+                                            </div>
+                                            
+                                            <div className={styles.cardSummary}>
+                                                {epDef?.summary || 'Endpoint Execution'}
+                                            </div>
+
+                                            <div className={styles.cardMeta}>
+                                                <div className={styles.cardTime}>{Math.round(fail.time)} MS</div>
+                                                <div className={`${styles.cardStatus} ${styles.failed}`}>FAILED</div>
+                                            </div>
+
+                                            <div className={styles.cardCodeBlock}>
+                                                <pre>{JSON.stringify(fail.response?.detail || fail.response || "Unknown Error", null, 2)}</pre>
+                                            </div>
+                                        </div>
+                                    );
+                                });
+                            })()}
+                            </div>
+                        </div>
+                    </div>
+                </>
+            )}
         </div>
     );
 }
