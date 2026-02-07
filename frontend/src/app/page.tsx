@@ -50,8 +50,24 @@ export default function Home() {
       const data = await response.json();
       setEndpoints(data.endpoints);
       
+      // Resolve Base URL logic
       if (data.raw?.servers && data.raw.servers.length > 0) {
-        setBaseUrl(data.raw.servers[0].url);
+        let detected = data.raw.servers[0].url;
+        if (detected.startsWith("/")) {
+          // Relative to swagger domain
+          const parsed = new URL(url);
+          setBaseUrl(`${parsed.origin}${detected.replace(/\/$/, "")}`);
+        } else {
+          setBaseUrl(detected.replace(/\/$/, ""));
+        }
+      } else {
+        // Fallback to domain root if no servers defined
+        try {
+          const parsed = new URL(url);
+          setBaseUrl(parsed.origin);
+        } catch {
+          setBaseUrl("");
+        }
       }
     } catch (err: any) {
       setError(err.message || "An unexpected error occurred");
@@ -269,7 +285,11 @@ export default function Home() {
                     
                     {latestRes && (
                       <div style={{ marginTop: "16px", paddingTop: "16px", borderTop: "1px solid var(--border-card)" }}>
-                        <div style={{ fontSize: "11px", color: "var(--text-secondary)", marginBottom: "6px" }}>Response Body</div>
+                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
+                          <span style={{ fontSize: "11px", color: "var(--text-secondary)" }}>Target URL</span>
+                          <span style={{ fontSize: "11px", color: "var(--accent)", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "300px" }}>{(latestRes as any).url}</span>
+                        </div>
+                        <div style={{ fontSize: "11px", color: "var(--text-secondary)", marginBottom: "6px" }}>Response data</div>
                         <pre style={{ 
                           fontSize: "11px", 
                           background: "rgba(0,0,0,0.3)", 
@@ -279,7 +299,10 @@ export default function Home() {
                           overflow: "auto",
                           color: "#99f6e4"
                         }}>
-                          {JSON.stringify(latestRes.response || latestRes.error, null, 2)}
+                          {typeof latestRes.response === 'string' 
+                            ? latestRes.response 
+                            : JSON.stringify(latestRes.response || (latestRes as any).error || "No data returned", null, 2)
+                          }
                         </pre>
                       </div>
                     )}
