@@ -1,4 +1,4 @@
-#!/Users/Jeevith/Downloads/React/Api-Testing-Automation-/backend/venv/bin/python3.12
+#!/Users/Jeevith/Downloads/React/Api-Testing-Automation/backend/venv/bin/python
 import sys
 from pip._internal.cli.main import main
 if __name__ == '__main__':
